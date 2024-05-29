@@ -13,21 +13,19 @@ use Traversable;
 trait IndexCollectionTrait
 {
     /** @var Index[] */
-    private array $indexes;
+    private array $collection;
 
     public function getIterator(): Traversable
     {
-        return new ArrayIterator($this->indexes);
+        return new ArrayIterator($this->collection);
     }
 
     public function offsetExists(mixed $offset): bool
     {
-        return isset($this->indexes[$offset]);
+        return isset($this->collection[$offset]);
     }
 
     /**
-     * @noinspection PhpMixedReturnTypeCanBeReducedInspection can not change interface implementation
-     *
      * @return Index
      */
     public function offsetGet(mixed $offset): mixed
@@ -39,7 +37,7 @@ trait IndexCollectionTrait
             ));
         }
 
-        return $this->indexes[$offset];
+        return $this->collection[$offset];
     }
 
     public function offsetSet(mixed $offset, mixed $value): void
@@ -65,17 +63,17 @@ trait IndexCollectionTrait
             ));
         }
 
-        $this->indexes[$offset] = $value;
+        $this->collection[$offset] = $value;
     }
 
     public function offsetUnset(mixed $offset): void
     {
-        unset($this->indexes[$offset]);
+        unset($this->collection[$offset]);
     }
 
     public function count(): int
     {
-        return count($this->indexes);
+        return count($this->collection);
     }
 
     // Custom
@@ -86,17 +84,17 @@ trait IndexCollectionTrait
 
     public function index(string $index): Index
     {
-        return $this->indexes[$index] ?? throw new IndexNotFound($index);
+        return $this->collection[$index] ?? throw new IndexNotFound($index);
     }
 
     public function repository(string $index): MeiliSearchRepositoryInterface
     {
-        return $this->indexes[$index]->repository ?? throw new IndexNotFound($index);
+        return $this->collection[$index]->repository ?? throw new IndexNotFound($index);
     }
 
     public function context(string $index): array
     {
-        return $this->indexes[$index]->context ?? throw new IndexNotFound($index);
+        return $this->collection[$index]->context ?? throw new IndexNotFound($index);
     }
 
     public function loadRepositories(iterable $repositories): void
@@ -119,7 +117,7 @@ trait IndexCollectionTrait
                 $index->repository = $repository;
             }
 
-            $this->indexes[$index->id] = $index;
+            $this->collection[$index->id] = $index;
         }
     }
 }

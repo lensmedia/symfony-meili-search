@@ -12,13 +12,7 @@ class Documents
 {
     public function __construct(
         private readonly MeiliSearch $meiliSearch,
-        private int $jsonEncodeOptions = 0,
     ) {
-    }
-
-    public function setJsonEncodeOptions(int $jsonEncodeOptions): void
-    {
-        $this->jsonEncodeOptions = $jsonEncodeOptions;
     }
 
     /**
@@ -34,12 +28,16 @@ class Documents
      */
     public function fetchAsync(string $index, array $parameters = []): ResponseInterface
     {
-        return $this->meiliSearch->post('/indexes/'.$index.'/documents/fetch', [
-            'json' => $parameters,
+        return $this->meiliSearch->post($this->uri($index, '/fetch'), [
+            'headers' => [
+                'content-type' => 'application/json',
+            ],
+            'body' => empty($parameters)
+                ? '{}'
+                : $this->meiliSearch->json($parameters),
         ]);
     }
 
-    /** @see fetchAsync */
     public function fetch(string $index, array $parameters = []): array
     {
         return $this->fetchAsync($index, $parameters)->toArray();
@@ -55,7 +53,7 @@ class Documents
      */
     public function getAsync(string $index, string $document, array $parameters = []): ResponseInterface
     {
-        return $this->meiliSearch->get('/indexes/'.$index.'/documents/'.$document, [
+        return $this->meiliSearch->get($this->uri($index, $document), [
             'query' => $parameters,
         ]);
     }
@@ -74,14 +72,13 @@ class Documents
         $index = $this->meiliSearch->index($index);
 
         $document = $this->handleObjectArgument($index, $document, $primaryKey, $normalizationContext);
-        $documentJson = json_encode($document, $this->jsonEncodeOptions + JSON_THROW_ON_ERROR);
 
-        return $this->meiliSearch->post('/indexes/'.$index->id.'/documents', [
+        return $this->meiliSearch->post($this->uri($index), [
             'headers' => [
                 'content-type' => 'application/json',
             ],
             'query' => ['primaryKey' => $primaryKey],
-            'body' => $documentJson,
+            'body' => $this->meiliSearch->json($document),
         ]);
     }
 
@@ -99,14 +96,13 @@ class Documents
         $index = $this->meiliSearch->index($index);
 
         $document = $this->handleObjectArgument($index, $document, $primaryKey, $normalizationContext);
-        $documentJson = json_encode($document, $this->jsonEncodeOptions + JSON_THROW_ON_ERROR);
 
-        return $this->meiliSearch->put('/indexes/'.$index->id.'/documents/'.$document[$primaryKey], [
+        return $this->meiliSearch->patch($this->uri($index, $document[$primaryKey]), [
             'headers' => [
                 'content-type' => 'application/json',
             ],
             'query' => ['primaryKey' => $primaryKey],
-            'body' => $documentJson,
+            'body' => $this->meiliSearch->json($document),
         ]);
     }
 
@@ -118,7 +114,7 @@ class Documents
 
     public function deleteAsync(string $index, string|int $document): ResponseInterface
     {
-        return $this->meiliSearch->delete('/indexes/'.$index.'/documents/'.$document);
+        return $this->meiliSearch->delete($this->uri($index, $document));
     }
 
     public function delete(string $index, string|int $document): array
@@ -128,8 +124,15 @@ class Documents
 
     public function deleteBatchAsync(string $index, array $ids): ResponseInterface
     {
-        return $this->meiliSearch->post('/indexes/'.$index.'/documents/delete-batch', [
-            'json' => $ids,
+        if (empty($ids)) {
+            throw new InvalidArgumentException('No document IDs provided to delete.');
+        }
+
+        return $this->meiliSearch->post($this->uri($index, '/delete-batch'), [
+            'headers' => [
+                'content-type' => 'application/json',
+            ],
+            'body' => $this->meiliSearch->json($ids),
         ]);
     }
 
@@ -140,7 +143,7 @@ class Documents
 
     public function clearAsync(string $index): ResponseInterface
     {
-        return $this->meiliSearch->delete('/indexes/'.$index.'/documents');
+        return $this->meiliSearch->delete($this->uri($index));
     }
 
     public function clear(string $index): array
@@ -167,7 +170,7 @@ class Documents
             }
 
             $key = (string)$document[$primaryKey];
-            $this->persisted[$index->id]->documents[$key] = json_encode($document, $this->jsonEncodeOptions + JSON_THROW_ON_ERROR);
+            $this->persisted[$index->id]->documents[$key] = $this->meiliSearch->json($document, ~JSON_PRETTY_PRINT);
         }
     }
 
@@ -176,11 +179,13 @@ class Documents
      */
     public function batchFlush(): array
     {
-        $items = [];
+        if (empty($this->persisted)) {
+            return [];
+        }
 
         $responses = [];
         foreach ($this->persisted as $index => $batch) {
-            $responses[$index] = $this->meiliSearch->post('/indexes/'.$index.'/documents', [
+            $responses[$index] = $this->meiliSearch->post($this->uri($index), [
                 'headers' => [
                     'content-type' => 'application/x-ndjson',
                 ],
@@ -213,5 +218,14 @@ class Documents
         }
 
         return $document;
+    }
+
+    private function uri(Index|string $index, ?string $suffix = null): string
+    {
+        if ($index instanceof Index) {
+            $index = $index->id;
+        }
+
+        return '/indexes/'.$index.'/documents'.($suffix ? '/'.ltrim($suffix, '/') : '');
     }
 }

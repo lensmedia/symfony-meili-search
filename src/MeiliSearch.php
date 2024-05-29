@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Lens\Bundle\MeiliSearchBundle;
 
+use JsonException;
 use JsonSerializable;
 use Lens\Bundle\MeiliSearchBundle\Exception\GroupNotFound;
 use Lens\Bundle\MeiliSearchBundle\Exception\IndexNotFound;
@@ -23,17 +24,16 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
     private readonly HttpClientInterface $httpClient;
     public readonly Settings $settings;
     public readonly Documents $documents;
+    public readonly Indexes $indexes;
 
     private readonly bool $isAdmin;
 
     public function __construct(
         HttpClientInterface $httpClient,
-        /** @param MeiliSearchRepositoryInterface[] $repositories */
-        iterable $repositories,
         /** @param MeiliSearchNormalizerInterface[] $normalizers */
         private readonly iterable $normalizers,
         private readonly array $groups,
-        int $jsonEncodeOptions = 0,
+        private int $jsonEncodeOptions = 0,
         string $uri,
         #[SensitiveParameter]
         string $searchKey,
@@ -47,9 +47,8 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
 
         $this->isAdmin = ($adminKey !== null);
         $this->settings = new Settings($this);
-        $this->documents = new Documents($this, $jsonEncodeOptions);
-
-        $this->loadRepositories($repositories);
+        $this->indexes = new Indexes($this);
+        $this->documents = new Documents($this);
     }
 
     public function searchAsync(SearchParameters $parameters): ResponseInterface
@@ -170,5 +169,15 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
     public function supportsNormalization(object $object, array $context): bool
     {
         return true;
+    }
+
+    /**
+     * @throws JsonException
+     */
+    public function json(mixed $data, int $options = JSON_THROW_ON_ERROR): string
+    {
+        $options = $this->jsonEncodeOptions | $options;
+
+        return json_encode($data, $options);
     }
 }

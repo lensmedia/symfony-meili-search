@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Lens\Bundle\MeiliSearchBundle;
 
+use InvalidArgumentException;
 use Lens\Bundle\MeiliSearchBundle\Index\Index;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
@@ -26,6 +27,10 @@ readonly class Settings
 
     public function updateAsync(string $index, array $settings = []): ResponseInterface
     {
+        if (empty($settings)) {
+            throw new InvalidArgumentException('Settings cannot be empty.');
+        }
+
         return $this->meiliSearch->patch($this->uri($index), [
             'json' => $settings,
         ]);
@@ -55,12 +60,16 @@ readonly class Settings
     /**
      * Loads the settings from the repository and updates it for the index.
      */
-    public function synchronizeAsync(string $index, array $settings = []): ResponseInterface
+    public function synchronizeAsync(string $index, array $settings = []): ?ResponseInterface
     {
         $index = $this->meiliSearch->index($index);
         $repository = $this->meiliSearch->repository($index->id);
 
         $settings = array_replace_recursive($repository->settings($index), $settings);
+
+        if (empty($settings)) {
+            return null;
+        }
 
         return $this->updateAsync($index->id, $settings);
     }
@@ -70,7 +79,7 @@ readonly class Settings
      */
     public function synchronize(string $index, array $settings = []): array
     {
-        return $this->synchronizeAsync($index, $settings)->toArray();
+        return $this->synchronizeAsync($index, $settings)?->toArray() ?? [];
     }
 
     /**
@@ -82,7 +91,10 @@ readonly class Settings
 
         /** @var Index $index */
         foreach ($this->meiliSearch as $index) {
-            $requests[] = $this->synchronizeAsync($index->id, $settings);
+            $request = $this->synchronizeAsync($index->id, $settings);
+            if ($request) {
+                $requests[] = $request;
+            }
         }
 
         return $requests;
