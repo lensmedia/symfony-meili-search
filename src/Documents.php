@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Lens\Bundle\MeiliSearchBundle;
 
 use InvalidArgumentException;
+use Lens\Bundle\MeiliSearchBundle\Index\Index;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
 class Documents
@@ -65,10 +66,92 @@ class Documents
         return $this->getAsync($index, $document, $parameters)->toArray();
     }
 
+    /**
+     * @see https://www.meilisearch.com/docs/reference/api/documents#add-or-replace-documents
+     */
+    public function addAsync(string $index, object|array $document, string $primaryKey = 'id', array $normalizationContext = []): ResponseInterface
+    {
+        $index = $this->meiliSearch->index($index);
+
+        $document = $this->handleObjectArgument($index, $document, $primaryKey, $normalizationContext);
+        $documentJson = json_encode($document, $this->jsonEncodeOptions + JSON_THROW_ON_ERROR);
+
+        return $this->meiliSearch->post('/indexes/'.$index->id.'/documents', [
+            'headers' => [
+                'content-type' => 'application/json',
+            ],
+            'query' => ['primaryKey' => $primaryKey],
+            'body' => $documentJson,
+        ]);
+    }
+
+    /** @see addAsync */
+    public function add(string $index, object|array $document, string $primaryKey = 'id', array $normalizationContext = []): array
+    {
+        return $this->addAsync($index, $document, $primaryKey, $normalizationContext)->toArray();
+    }
+
+    /**
+     * @see https://www.meilisearch.com/docs/reference/api/documents#add-or-update-documents
+     */
+    public function updateAsync(string $index, object|array $document, string $primaryKey = 'id', array $normalizationContext = []): ResponseInterface
+    {
+        $index = $this->meiliSearch->index($index);
+
+        $document = $this->handleObjectArgument($index, $document, $primaryKey, $normalizationContext);
+        $documentJson = json_encode($document, $this->jsonEncodeOptions + JSON_THROW_ON_ERROR);
+
+        return $this->meiliSearch->put('/indexes/'.$index->id.'/documents/'.$document[$primaryKey], [
+            'headers' => [
+                'content-type' => 'application/json',
+            ],
+            'query' => ['primaryKey' => $primaryKey],
+            'body' => $documentJson,
+        ]);
+    }
+
+    /** @see updateAsync */
+    public function update(string $index, object|array $document, string $primaryKey = 'id', array $normalizationContext = []): array
+    {
+        return $this->updateAsync($index, $document, $primaryKey, $normalizationContext)->toArray();
+    }
+
+    public function deleteAsync(string $index, string|int $document): ResponseInterface
+    {
+        return $this->meiliSearch->delete('/indexes/'.$index.'/documents/'.$document);
+    }
+
+    public function delete(string $index, string|int $document): array
+    {
+        return $this->deleteAsync($index, $document)->toArray();
+    }
+
+    public function deleteBatchAsync(string $index, array $ids): ResponseInterface
+    {
+        return $this->meiliSearch->post('/indexes/'.$index.'/documents/delete-batch', [
+            'json' => $ids,
+        ]);
+    }
+
+    public function deleteBatch(string $index, array $ids): array
+    {
+        return $this->deleteBatchAsync($index, $ids)->toArray();
+    }
+
+    public function clearAsync(string $index): ResponseInterface
+    {
+        return $this->meiliSearch->delete('/indexes/'.$index.'/documents');
+    }
+
+    public function clear(string $index): array
+    {
+        return $this->clearAsync($index)->toArray();
+    }
+
     /** @var array<string, Batch> */
     private array $persisted = [];
 
-    public function batchPersist(string $index, object|iterable $documents = [], string $primaryKey = 'id', array $normalizationContext = []): void
+    public function batchPersist(string $index, object|iterable $documents, string $primaryKey = 'id', array $normalizationContext = []): void
     {
         $index = $this->meiliSearch->index($index);
 
@@ -77,19 +160,7 @@ class Documents
             : [$documents];
 
         foreach ($documents as $document) {
-            if (is_object($document)) {
-                $document = $this->meiliSearch->normalize($document, array_replace_recursive($normalizationContext, [
-                    'index' => $index,
-                ]));
-            }
-
-            if (!isset($document[$primaryKey])) {
-                throw new InvalidArgumentException(sprintf(
-                    'Document is missing the primary key property "%s" for index "%s" after normalization, either add an "id" column or specify it using the "primaryKey" parameter.',
-                    $primaryKey,
-                    $index->id,
-                ));
-            }
+            $document = $this->handleObjectArgument($index, $document, $primaryKey, $normalizationContext);
 
             if (!isset($this->persisted[$index->id])) {
                 $this->persisted[$index->id] = new Batch($index, $primaryKey);
@@ -118,10 +189,29 @@ class Documents
             ]);
         }
 
-        $resolved = array_map(fn (ResponseInterface $response) => $response->toArray(), $responses);
+        $resolved = array_map(static fn (ResponseInterface $response) => $response->toArray(), $responses);
 
         $this->persisted = [];
 
         return $resolved;
+    }
+
+    private function handleObjectArgument(Index $index, object|array $document, string $primaryKey, array $normalizationContext): array
+    {
+        if (is_object($document)) {
+            $document = $this->meiliSearch->normalize($document, array_replace_recursive($normalizationContext, [
+                'index' => $index,
+            ]));
+        }
+
+        if (!isset($document[$primaryKey])) {
+            throw new InvalidArgumentException(sprintf(
+                'Document is missing the primary key property "%s" for index "%s" after normalization, either add an "id" column or specify it using the "primaryKey" parameter.',
+                $primaryKey,
+                $index->id,
+            ));
+        }
+
+        return $document;
     }
 }
