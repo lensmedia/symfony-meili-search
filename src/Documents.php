@@ -207,7 +207,7 @@ class Documents
     private function handleObjectArgument(Index $index, object|array $document, array $normalizationContext): array
     {
         if (is_object($document)) {
-            $document = $this->meiliSearch->normalize($document, array_replace_recursive($normalizationContext, [
+            $document = $this->meiliSearch->normalize($document, array_replace_recursive($index->context, $normalizationContext, [
                 'index' => $index,
             ]));
         }
