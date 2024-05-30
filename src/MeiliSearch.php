@@ -11,6 +11,7 @@ use Lens\Bundle\MeiliSearchBundle\Exception\IndexNotFound;
 use Lens\Bundle\MeiliSearchBundle\Exception\NormalizationFailed;
 use Lens\Bundle\MeiliSearchBundle\Exception\NormalizerNotFound;
 use Lens\Bundle\MeiliSearchBundle\Index\IndexCollectionTrait;
+use RuntimeException;
 use SensitiveParameter;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -93,7 +94,9 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
 
     public function multiSearch(array $searchParameters): array
     {
-        return $this->multiSearchAsync($searchParameters)->toArray();
+        $results = $this->multiSearchAsync($searchParameters)->toArray();
+
+        return $results['results'] ?? [];
     }
 
     public function groupSearchAsync(string $group, SearchParameters $searchParameters): ResponseInterface
@@ -113,9 +116,35 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         return $this->multiSearchAsync($queries);
     }
 
-    public function groupSearch(string $group, SearchParameters $searchParameters): array
+    public function groupSearch(string $group, SearchParameters $searchParameters, bool $mergeResults = false): array
     {
-        return $this->groupSearchAsync($group, $searchParameters)->toArray();
+        $results = $this->groupSearchAsync($group, $searchParameters)->toArray();
+
+        if ($mergeResults) {
+            return $this->mergeSearchResults($results);
+        }
+
+        return $results['results'] ?? [];
+    }
+
+    public function mergeSearchResults(array $results): array
+    {
+        $output = [];
+        foreach ($results['results'] as $result) {
+            if (empty($result['indexUid'])) {
+                throw new RuntimeException('IndexUid is missing in the result.');
+            }
+
+            foreach ($result['hits'] as $hit) {
+                $output[] = array_merge($hit, [
+                    '_index' => $result['indexUid'],
+                ]);
+            }
+        }
+
+        usort($output, static fn ($a, $b) => $b['_rankingScore'] <=> $a['_rankingScore']);
+
+        return $output;
     }
 
     public function get(string $uri, array $options = []): ResponseInterface
