@@ -10,7 +10,6 @@ class Batch
 {
     public function __construct(
         public readonly Index $index,
-        public readonly string $primaryKey,
         public iterable $documents = [],
     ) {
     }

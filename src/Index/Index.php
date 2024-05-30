@@ -11,6 +11,7 @@ class Index
     public function __construct(
         public readonly string $id,
         public readonly array $context = [],
+        public readonly string $primaryKey = 'id',
         public ?MeiliSearchRepositoryInterface $repository = null,
     ) {
     }
