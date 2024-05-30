@@ -34,12 +34,12 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         /** @param MeiliSearchNormalizerInterface[] $normalizers */
         private readonly iterable $normalizers,
         private readonly array $groups,
-        private int $jsonEncodeOptions = 0,
         string $uri,
         #[SensitiveParameter]
         string $searchKey,
         #[SensitiveParameter]
         ?string $adminKey = null,
+        private readonly int $jsonEncodeOptions = 0,
     ) {
         $this->httpClient = $httpClient->withOptions([
             'base_uri' => $uri,
@@ -160,6 +160,11 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
     public function patch(string $uri, array $options = []): ResponseInterface
     {
         return $this->httpClient->request(Request::METHOD_PATCH, $uri, $options);
+    }
+
+    public function put(string $uri, array $options = []): ResponseInterface
+    {
+        return $this->httpClient->request(Request::METHOD_PUT, $uri, $options);
     }
 
     public function delete(string $uri, array $options = []): ResponseInterface

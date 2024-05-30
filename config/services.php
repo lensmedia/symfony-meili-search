@@ -16,10 +16,10 @@ return static function (ContainerConfigurator $container) {
             service(HttpClientInterface::class),
             tagged_iterator(MeiliSearchNormalizerInterface::class),
             abstract_arg('groups'),
-            abstract_arg('jsonEncodeOptions'),
             abstract_arg('uri'),
             abstract_arg('searchKey'),
             abstract_arg('adminKey'),
+            abstract_arg('jsonEncodeOptions'),
         ])
         ->call('loadRepositories', [
             tagged_iterator(MeiliSearchRepositoryInterface::class)

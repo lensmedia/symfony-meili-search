@@ -99,7 +99,7 @@ class Documents
 
         $document = $this->handleObjectArgument($index, $document, $normalizationContext);
 
-        return $this->meiliSearch->patch($this->uri($index, $document[$primaryKey]), [
+        return $this->meiliSearch->put($this->uri($index, $document[$primaryKey]), [
             'headers' => [
                 'content-type' => 'application/json',
             ],
