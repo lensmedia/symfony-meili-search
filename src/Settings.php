@@ -110,8 +110,6 @@ readonly class Settings
 
     private function uri(string $index): string
     {
-        $index = $this->meiliSearch->addIndexAffixes($index);
-
         return '/indexes/'.$this->meiliSearch->addIndexAffixes($index).'/settings';
     }
 }
