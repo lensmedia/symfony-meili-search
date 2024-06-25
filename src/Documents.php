@@ -229,6 +229,8 @@ class Documents
             $index = $index->id;
         }
 
+        $index = $this->meiliSearch->addIndexAffixes($index);
+
         return '/indexes/'.$index.'/documents'.($suffix ? '/'.ltrim($suffix, '/') : '');
     }
 }

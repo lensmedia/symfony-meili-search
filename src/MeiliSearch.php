@@ -10,6 +10,7 @@ use Lens\Bundle\MeiliSearchBundle\Exception\GroupNotFound;
 use Lens\Bundle\MeiliSearchBundle\Exception\IndexNotFound;
 use Lens\Bundle\MeiliSearchBundle\Exception\NormalizationFailed;
 use Lens\Bundle\MeiliSearchBundle\Exception\NormalizerNotFound;
+use Lens\Bundle\MeiliSearchBundle\Index\Index;
 use Lens\Bundle\MeiliSearchBundle\Index\IndexCollectionTrait;
 use RuntimeException;
 use SensitiveParameter;
@@ -24,12 +25,21 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
 {
     use IndexCollectionTrait;
 
+    public const DEFAULT_OPTIONS = [
+        'indexes' => [
+            'prefix' => '',
+            'suffix' => '',
+        ],
+        'json_encode_options' => 0,
+    ];
+
     private readonly HttpClientInterface $httpClient;
+    private readonly bool $isAdmin;
+
     public readonly Settings $settings;
     public readonly Documents $documents;
     public readonly Indexes $indexes;
-
-    private readonly bool $isAdmin;
+    public readonly array $options;
 
     public function __construct(
         HttpClientInterface $httpClient,
@@ -41,9 +51,10 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         string $searchKey,
         #[SensitiveParameter]
         ?string $adminKey = null,
-        private readonly int $jsonEncodeOptions = 0,
-        array $indexesOptions = [],
+        array $options = self::DEFAULT_OPTIONS,
     ) {
+        $this->options = array_replace_recursive(self::DEFAULT_OPTIONS, $options);
+
         $this->httpClient = $httpClient->withOptions([
             'base_uri' => $uri,
             'auth_bearer' => $adminKey ?? $searchKey,
@@ -51,7 +62,7 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
 
         $this->isAdmin = (null !== $adminKey);
         $this->settings = new Settings($this);
-        $this->indexes = new Indexes($this, $indexesOptions);
+        $this->indexes = new Indexes($this);
         $this->documents = new Documents($this);
     }
 
@@ -63,7 +74,7 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
             throw new IndexNotFound($id);
         }
 
-        return $this->post('/indexes/'.$id.'/search', [
+        return $this->post('/indexes/'.$this->addIndexAffixes($id).'/search', [
             'json' => (array)$parameters,
         ]);
     }
@@ -86,7 +97,7 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
             }
 
             $query = array_filter((array)$searchParameter, static fn ($value) => null !== $value);
-            $query['indexUid'] = $id;
+            $query['indexUid'] = $this->addIndexAffixes($id);
             $queries[] = $query;
         }
 
@@ -213,8 +224,32 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
      */
     public function json(mixed $data, int $options = JSON_THROW_ON_ERROR): string
     {
-        $options |= $this->jsonEncodeOptions;
+        $options |= $this->options['normalization']['json_encode_options'] ?? 0;
 
         return json_encode($data, $options);
+    }
+
+    public function addIndexAffixes(Index|string $index): string
+    {
+        if ($index instanceof Index) {
+            $index = $index->id;
+        }
+
+        return $this->options['indexes']['prefix'].$index.$this->options['indexes']['suffix'];
+    }
+
+    public function removeIndexAffixes(string $index): string
+    {
+        $prefix = $this->options['indexes']['prefix'];
+        if ($prefix && str_starts_with($index, $prefix)) {
+            $index = substr($index, strlen($prefix));
+        }
+
+        $suffix = $this->options['indexes']['suffix'];
+        if ($suffix && str_ends_with($index, $suffix)) {
+            $index = substr($index, 0, -strlen($suffix));
+        }
+
+        return $index;
     }
 }

@@ -24,6 +24,8 @@ trait IndexCollectionTrait
 
     public function offsetExists(mixed $offset): bool
     {
+        $offset = $this->removeIndexAffixes($offset);
+
         return isset($this->collection[$offset]);
     }
 
@@ -32,6 +34,8 @@ trait IndexCollectionTrait
      */
     public function offsetGet(mixed $offset): mixed
     {
+        $offset = $this->removeIndexAffixes($offset);
+
         if (!$this->offsetExists($offset)) {
             throw new InvalidArgumentException(sprintf(
                 'Index "%s" not found.',
@@ -81,16 +85,22 @@ trait IndexCollectionTrait
     // Custom
     public function isManagedIndex(string $index): bool
     {
+        $index = $this->removeIndexAffixes($index);
+
         return $this->offsetExists($index);
     }
 
     public function index(string $index): Index
     {
+        $index = $this->removeIndexAffixes($index);
+
         return $this->collection[$index] ?? throw new IndexNotFound($index);
     }
 
     public function context(string $index): array
     {
+        $index = $this->removeIndexAffixes($index);
+
         return $this->collection[$index]->context ?? throw new IndexNotFound($index);
     }
 
@@ -116,6 +126,8 @@ trait IndexCollectionTrait
 
     public function repository(string $index): MeiliSearchRepositoryInterface
     {
+        $index = $this->removeIndexAffixes($index);
+
         return $this->collection[$index]->repository ?? throw new IndexNotFound($index);
     }
 

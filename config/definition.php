@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Lens\Bundle\MeiliSearchBundle\Indexes;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 
 return static function (DefinitionConfigurator $definition): void {
@@ -12,8 +11,8 @@ return static function (DefinitionConfigurator $definition): void {
                 ->arrayNode('indexes')
                     ->addDefaultsIfNotSet()
                     ->children()
-                        ->scalarNode('prefix')->treatNullLike(Indexes::DEFAULT_OPTIONS['prefix'])->defaultNull()->end()
-                        ->scalarNode('suffix')->treatNullLike(Indexes::DEFAULT_OPTIONS['suffix'])->defaultNull()->end()
+                        ->scalarNode('prefix')->defaultNull()->end()
+                        ->scalarNode('suffix')->defaultNull()->end()
                     ->end()
                 ->end()
 

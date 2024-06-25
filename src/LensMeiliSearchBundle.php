@@ -21,14 +21,21 @@ class LensMeiliSearchBundle extends AbstractBundle
         $container->import('../config/services.php');
 
         $builder->getDefinition(MeiliSearch::class)
-            ->setArgument('$groups', $config['groups'])
-            ->setArgument('$jsonEncodeOptions', $config['normalization']['json_encode_options'])
-            ->setArgument('$indexesOptions', $config['indexes'])
-            ->setArgument('$uri', $config['uri'])
-            ->setArgument('$searchKey', $config['search_key'])
-            ->setArgument('$adminKey', $config['admin_key']);
+            ->setArgument('$uri', $this->option('uri', $config))
+            ->setArgument('$groups', $this->option('groups', $config))
+            ->setArgument('$searchKey', $this->option('search_key', $config))
+            ->setArgument('$adminKey', $this->option('admin_key', $config))
+            ->setArgument('$options', $config);
 
         $builder->registerForAutoconfiguration(MeiliSearchRepositoryInterface::class)->addTag(MeiliSearchRepositoryInterface::class);
         $builder->registerForAutoconfiguration(MeiliSearchNormalizerInterface::class)->addTag(MeiliSearchNormalizerInterface::class);
+    }
+
+    private function option(string $name, array &$config): mixed
+    {
+        $value = $config[$name] ?? null;
+        unset($config[$name]);
+
+        return $value;
     }
 }

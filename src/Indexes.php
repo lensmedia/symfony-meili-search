@@ -9,18 +9,11 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
 
 readonly class Indexes
 {
-    public const DEFAULT_OPTIONS = [
-        'prefix' => '',
-        'suffix' => '',
-    ];
-
     public array $options;
 
     public function __construct(
         private MeiliSearch $meiliSearch,
-        array $options = [],
     ) {
-        $this->options = array_replace_recursive(self::DEFAULT_OPTIONS, $options);
     }
 
     public function all(): array
@@ -95,7 +88,7 @@ readonly class Indexes
         }
 
         if ($index) {
-            $index = $this->options['prefix'].$index.$this->options['suffix'];
+            $index = $this->meiliSearch->addIndexAffixes($index);
         }
 
         return '/indexes'.($index ? '/'.$index : '').($suffix ? '/'.ltrim($suffix, '/') : '');

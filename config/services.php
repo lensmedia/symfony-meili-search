@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
-use Lens\Bundle\MeiliSearchBundle\Command\DumpIndexesCommand;
+use Lens\Bundle\MeiliSearchBundle\Command\GroupsCommand;
+use Lens\Bundle\MeiliSearchBundle\Command\IndexesCommand;
 use Lens\Bundle\MeiliSearchBundle\MeiliSearch;
 use Lens\Bundle\MeiliSearchBundle\MeiliSearchNormalizerInterface;
 use Lens\Bundle\MeiliSearchBundle\MeiliSearchRepositoryInterface;
@@ -20,14 +21,19 @@ return static function (ContainerConfigurator $container) {
             abstract_arg('uri'),
             abstract_arg('searchKey'),
             abstract_arg('adminKey'),
-            abstract_arg('jsonEncodeOptions'),
-            abstract_arg('indexesOptions'),
+            abstract_arg('options'),
         ])
         ->call('loadRepositories', [
             tagged_iterator(MeiliSearchRepositoryInterface::class)
         ])
 
-        ->set(DumpIndexesCommand::class)
+        ->set(IndexesCommand::class)
+        ->args([
+            service(MeiliSearch::class),
+        ])
+        ->tag('console.command')
+
+        ->set(GroupsCommand::class)
         ->args([
             service(MeiliSearch::class),
         ])

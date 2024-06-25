@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Lens\Bundle\MeiliSearchBundle\Command;
 
-use JsonException;
 use Lens\Bundle\MeiliSearchBundle\MeiliSearch;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -16,9 +15,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     name: self::NAME,
     description: 'Dump the indexes references.',
 )]
-class DumpIndexesCommand extends Command
+class IndexesCommand extends Command
 {
-    public const NAME = 'lens:meili-search:dump-indexes';
+    public const NAME = 'lens:meili-search:indexes';
     public function __construct(
         private readonly MeiliSearch $meiliSearch,
     ) {
@@ -31,39 +30,49 @@ class DumpIndexesCommand extends Command
 
         $io->section('Dumping indexes references');
 
-        $prefix = $this->meiliSearch->indexes->options['prefix'] ?? '';
+        $prefix = $this->meiliSearch->options['indexes']['prefix'] ?? '';
         if ($prefix !== '') {
             $io->comment(sprintf('Prefix: %s', $prefix));
         }
 
-        $suffix = $this->meiliSearch->indexes->options['suffix'] ?? '';
+        $suffix = $this->meiliSearch->options['indexes']['suffix'] ?? '';
         if ($suffix !== '') {
             $io->comment(sprintf('Suffix: %s', $suffix));
         }
 
-        $data = [];
+        $hasAffixes = $prefix !== '' || $suffix !== '';
 
+        $data = [];
         foreach ($this->meiliSearch->repositories() as $repository) {
             foreach ($repository->indexes() as $index) {
                 $context = empty($index->context)
                     ? ''
                     : implode(', ', array_keys($index->context));
 
-                $data[] = [
-                    $prefix.$index->id.$suffix,
+                $entry = [
+                    $index->id,
                     $context,
                     $index->primaryKey,
-                    $index->repository::class,
+                    $index->repository::class ?? '',
                 ];
+
+                if ($hasAffixes) {
+                    array_splice($entry, 1, 0, [
+                        $prefix.$index->id.$suffix
+                    ]);
+                }
+
+                $data[] = $entry;
             }
         }
 
-        $io->table([
-            'id',
-            'context',
-            'pk',
-            'repository',
-        ], $data);
+        static $headers = ['id', 'context', 'pk', 'repository'];
+
+        if ($hasAffixes) {
+            array_splice($headers, 1, 0, 'affixed');
+        }
+
+        $io->table($headers, $data);
 
         return Command::SUCCESS;
     }
