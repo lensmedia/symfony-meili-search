@@ -15,6 +15,8 @@ trait IndexCollectionTrait
     /** @var Index[] */
     private array $collection;
 
+    private iterable $repositories;
+
     public function getIterator(): Traversable
     {
         return new ArrayIterator($this->collection);
@@ -87,11 +89,6 @@ trait IndexCollectionTrait
         return $this->collection[$index] ?? throw new IndexNotFound($index);
     }
 
-    public function repository(string $index): MeiliSearchRepositoryInterface
-    {
-        return $this->collection[$index]->repository ?? throw new IndexNotFound($index);
-    }
-
     public function context(string $index): array
     {
         return $this->collection[$index]->context ?? throw new IndexNotFound($index);
@@ -99,6 +96,8 @@ trait IndexCollectionTrait
 
     public function loadRepositories(iterable $repositories): void
     {
+        $this->repositories = $repositories;
+
         foreach ($repositories as $repository) {
             $this->loadRepository($repository);
         }
@@ -107,6 +106,17 @@ trait IndexCollectionTrait
     public function loadRepository(MeiliSearchRepositoryInterface $repository): void
     {
         $this->mapRepositoryIndexesToId($repository);
+    }
+
+    /** @return MeiliSearchRepositoryInterface[] */
+    public function repositories(): iterable
+    {
+        return $this->repositories;
+    }
+
+    public function repository(string $index): MeiliSearchRepositoryInterface
+    {
+        return $this->collection[$index]->repository ?? throw new IndexNotFound($index);
     }
 
     private function mapRepositoryIndexesToId(MeiliSearchRepositoryInterface $repository): void

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Lens\Bundle\MeiliSearchBundle\Command\DumpIndexesCommand;
 use Lens\Bundle\MeiliSearchBundle\MeiliSearch;
 use Lens\Bundle\MeiliSearchBundle\MeiliSearchNormalizerInterface;
 use Lens\Bundle\MeiliSearchBundle\MeiliSearchRepositoryInterface;
@@ -25,5 +26,11 @@ return static function (ContainerConfigurator $container) {
         ->call('loadRepositories', [
             tagged_iterator(MeiliSearchRepositoryInterface::class)
         ])
+
+        ->set(DumpIndexesCommand::class)
+        ->args([
+            service(MeiliSearch::class),
+        ])
+        ->tag('console.command')
     ;
 };

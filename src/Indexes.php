@@ -14,7 +14,7 @@ readonly class Indexes
         'suffix' => '',
     ];
 
-    private array $options;
+    public array $options;
 
     public function __construct(
         private MeiliSearch $meiliSearch,
