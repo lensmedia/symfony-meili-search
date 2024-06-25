@@ -23,6 +23,7 @@ class LensMeiliSearchBundle extends AbstractBundle
         $builder->getDefinition(MeiliSearch::class)
             ->setArgument('$groups', $config['groups'])
             ->setArgument('$jsonEncodeOptions', $config['normalization']['json_encode_options'])
+            ->setArgument('$indexesOptions', $config['indexes'])
             ->setArgument('$uri', $config['uri'])
             ->setArgument('$searchKey', $config['search_key'])
             ->setArgument('$adminKey', $config['admin_key']);

@@ -18,6 +18,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 use Throwable;
 
+use const JSON_THROW_ON_ERROR;
+
 class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterface
 {
     use IndexCollectionTrait;
@@ -40,15 +42,16 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         #[SensitiveParameter]
         ?string $adminKey = null,
         private readonly int $jsonEncodeOptions = 0,
+        array $indexesOptions = [],
     ) {
         $this->httpClient = $httpClient->withOptions([
             'base_uri' => $uri,
             'auth_bearer' => $adminKey ?? $searchKey,
         ]);
 
-        $this->isAdmin = ($adminKey !== null);
+        $this->isAdmin = (null !== $adminKey);
         $this->settings = new Settings($this);
-        $this->indexes = new Indexes($this);
+        $this->indexes = new Indexes($this, $indexesOptions);
         $this->documents = new Documents($this);
     }
 
@@ -82,7 +85,7 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
                 throw new IndexNotFound($id);
             }
 
-            $query = array_filter((array)$searchParameter, static fn ($value) => $value !== null);
+            $query = array_filter((array)$searchParameter, static fn ($value) => null !== $value);
             $query['indexUid'] = $id;
             $queries[] = $query;
         }
@@ -210,7 +213,7 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
      */
     public function json(mixed $data, int $options = JSON_THROW_ON_ERROR): string
     {
-        $options = $this->jsonEncodeOptions | $options;
+        $options |= $this->jsonEncodeOptions;
 
         return json_encode($data, $options);
     }

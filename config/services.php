@@ -20,6 +20,7 @@ return static function (ContainerConfigurator $container) {
             abstract_arg('searchKey'),
             abstract_arg('adminKey'),
             abstract_arg('jsonEncodeOptions'),
+            abstract_arg('indexesOptions'),
         ])
         ->call('loadRepositories', [
             tagged_iterator(MeiliSearchRepositoryInterface::class)
