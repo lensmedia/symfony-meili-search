@@ -12,6 +12,7 @@ use Lens\Bundle\MeiliSearchBundle\Exception\NormalizationFailed;
 use Lens\Bundle\MeiliSearchBundle\Exception\NormalizerNotFound;
 use Lens\Bundle\MeiliSearchBundle\Index\Index;
 use Lens\Bundle\MeiliSearchBundle\Index\IndexCollectionTrait;
+use LogicException;
 use RuntimeException;
 use SensitiveParameter;
 use Symfony\Component\HttpFoundation\Request;
@@ -36,6 +37,9 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
     private readonly HttpClientInterface $httpClient;
     private readonly bool $isAdmin;
 
+    /** @var array<string, GroupConfig> */
+    private array $groups = [];
+
     public readonly Settings $settings;
     public readonly Documents $documents;
     public readonly Indexes $indexes;
@@ -45,7 +49,7 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         HttpClientInterface $httpClient,
         /** @param MeiliSearchNormalizerInterface[] $normalizers */
         private readonly iterable $normalizers,
-        private readonly array $groups,
+        array $groups,
         string $uri,
         #[SensitiveParameter]
         string $searchKey,
@@ -53,6 +57,10 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         ?string $adminKey = null,
         array $options = self::DEFAULT_OPTIONS,
     ) {
+        foreach ($groups as $group => $indexes) {
+            $this->groups[$group] = new GroupConfig($group, $indexes);
+        }
+
         $this->options = array_replace_recursive(self::DEFAULT_OPTIONS, $options);
 
         $this->httpClient = $httpClient->withOptions([
@@ -113,45 +121,56 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         return $results['results'] ?? [];
     }
 
-    public function groupSearchAsync(string $group, SearchParameters $searchParameters): ResponseInterface
+    public function groupSearchAsync(string $groupName, SearchParameters $searchParameters): ResponseInterface
     {
-        if (empty($this->groups[$group])) {
-            throw new GroupNotFound($group);
-        }
-
-        $group = $this->groups[$group];
+        $group = $this->group($groupName);
 
         $queries = [];
-        foreach ($group as $index) {
+        foreach ($group->indexes as $config) {
             $queries[] = $indexParameters = clone $searchParameters;
-            $indexParameters->indexUid = $index;
+            $indexParameters->indexUid = $config->index;
         }
 
         return $this->multiSearchAsync($queries);
     }
 
-    public function groupSearch(string $group, SearchParameters $searchParameters, bool $mergeResults = false): array
+    public function groupSearch(string $groupName, SearchParameters $searchParameters, bool $mergeResults = false): array
     {
-        $results = $this->groupSearchAsync($group, $searchParameters)->toArray();
+        $results = $this->groupSearchAsync($groupName, $searchParameters)->toArray();
 
         if ($mergeResults) {
-            return $this->mergeSearchResults($results);
+            return $this->mergeSearchResults($results, $this->group($groupName)->name);
         }
 
         return $results['results'] ?? [];
     }
 
-    public function mergeSearchResults(array $results): array
+    public function mergeSearchResults(array $results, string $groupName): array
     {
+        $group = $this->group($groupName);
+
         $output = [];
         foreach ($results['results'] as $result) {
-            if (empty($result['indexUid'])) {
+            $indexName = $result['indexUid'] ?? null;
+            if (empty($indexName)) {
                 throw new RuntimeException('IndexUid is missing in the result.');
+            }
+
+            $indexName = $this->removeIndexAffixes($indexName);
+
+            $index = $group->indexes[$indexName] ?? null;
+            if (!($index instanceof GroupConfigIndex)) {
+                throw new LogicException(sprintf(
+                    'Unable to merge results. Index "%s" from the results is not part of the provided group its indexes (%s).',
+                    $indexName,
+                    $groupName,
+                ));
             }
 
             foreach ($result['hits'] as $hit) {
                 $output[] = array_merge($hit, [
-                    '_index' => $result['indexUid'],
+                    '_index' => $indexName,
+                    '_rankingScore' => $hit['_rankingScore'] * $index->weight,
                 ]);
             }
         }
@@ -159,6 +178,16 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         usort($output, static fn ($a, $b) => $b['_rankingScore'] <=> $a['_rankingScore']);
 
         return $output;
+    }
+
+    private function group(string $groupName): GroupConfig
+    {
+        $group = $this->groups[$groupName] ?? null;
+        if (!($group instanceof GroupConfig)) {
+            throw new GroupNotFound($groupName);
+        }
+
+        return $group;
     }
 
     public function get(string $uri, array $options = []): ResponseInterface

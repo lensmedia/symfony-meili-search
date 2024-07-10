@@ -28,9 +28,16 @@ return static function (DefinitionConfigurator $definition): void {
                 ->end()
 
                 ->arrayNode('groups')
-                    ->defaultValue([])
                     ->arrayPrototype()
-                        ->scalarPrototype()->end()
+                        ->arrayPrototype()
+                            ->children()
+                                ->scalarNode('index')->isRequired()->end()
+                                ->floatNode('weight')
+                                    ->defaultValue(1.0)
+                                    ->info('The ranking score is multiplied by this value for hits in this index.')
+                                ->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
     ;
