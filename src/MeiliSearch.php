@@ -134,18 +134,18 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
         return $this->multiSearchAsync($queries);
     }
 
-    public function groupSearch(string $groupName, SearchParameters $searchParameters, bool $mergeResults = false): array
+    public function groupSearch(string $groupName, SearchParameters $searchParameters, bool $mergeResults = false, bool $uniqueByPrimaryKey = false): array
     {
         $results = $this->groupSearchAsync($groupName, $searchParameters)->toArray();
 
         if ($mergeResults) {
-            return $this->mergeSearchResults($results, $this->group($groupName)->name);
+            return $this->mergeSearchResults($results, $this->group($groupName)->name, $uniqueByPrimaryKey);
         }
 
         return $results['results'] ?? [];
     }
 
-    public function mergeSearchResults(array $results, string $groupName): array
+    public function mergeSearchResults(array $results, string $groupName, bool $uniqueByPrimaryKey = false): array
     {
         $group = $this->group($groupName);
 
@@ -157,9 +157,10 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
             }
 
             $indexName = $this->removeIndexAffixes($indexName);
+            $index = $this->index($indexName);
 
-            $index = $group->indexes[$indexName] ?? null;
-            if (!($index instanceof GroupConfigIndex)) {
+            $groupConfigIndex = $group->indexes[$indexName] ?? null;
+            if (!($groupConfigIndex instanceof GroupConfigIndex)) {
                 throw new LogicException(sprintf(
                     'Unable to merge results. Index "%s" from the results is not part of the provided group its indexes (%s).',
                     $indexName,
@@ -168,14 +169,28 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
             }
 
             foreach ($result['hits'] as $hit) {
-                $output[] = array_merge($hit, [
+                $id = $hit[$index->primaryKey] ?? null;
+                if (!$id && $uniqueByPrimaryKey) {
+                    throw new LogicException(sprintf(
+                        'Index configured primary key "%s" is missing in the search result for group "%s". Unable to force unique results.',
+                        $index->primaryKey,
+                        $groupName,
+                    ));
+                }
+
+                $rankingScore = $hit['_rankingScore'] * $groupConfigIndex->weight;
+                if (isset($output[$id]) && $output[$id]['_rankingScore'] >= $rankingScore) {
+                    continue;
+                }
+
+                $output[$id] = array_merge($hit, [
                     '_index' => $indexName,
-                    '_rankingScore' => $hit['_rankingScore'] * $index->weight,
+                    '_rankingScore' => $rankingScore,
                 ]);
             }
         }
 
-        usort($output, static fn ($a, $b) => $b['_rankingScore'] <=> $a['_rankingScore']);
+        uasort($output, static fn ($a, $b) => $b['_rankingScore'] <=> $a['_rankingScore']);
 
         return $output;
     }
