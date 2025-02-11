@@ -45,7 +45,7 @@ interface IndexSettingsInterface
             'maxTotalHits' => 'int', // default: 1000
         ],
         'proximityPrecision' => 'string', // default: 'byWord' (byWord, byAttribute)
-        'searchCutoffMs' => 'int', // default: null (meilisearch defaults to 1500ms)
+        'searchCutoffMs' => 'int', // default: null (MeiliSearch defaults to 1500ms)
     ])]
     public function settings(Index $index): array;
 }

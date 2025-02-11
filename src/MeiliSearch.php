@@ -207,27 +207,32 @@ class MeiliSearch implements MeiliSearchInterface, MeiliSearchNormalizerInterfac
 
     public function get(string $uri, array $options = []): ResponseInterface
     {
-        return $this->httpClient->request(Request::METHOD_GET, $uri, $options);
+        return $this->request(Request::METHOD_GET, $uri, $options);
     }
 
     public function post(string $uri, array $options = []): ResponseInterface
     {
-        return $this->httpClient->request(Request::METHOD_POST, $uri, $options);
+        return $this->request(Request::METHOD_POST, $uri, $options);
     }
 
     public function patch(string $uri, array $options = []): ResponseInterface
     {
-        return $this->httpClient->request(Request::METHOD_PATCH, $uri, $options);
+        return $this->request(Request::METHOD_PATCH, $uri, $options);
     }
 
     public function put(string $uri, array $options = []): ResponseInterface
     {
-        return $this->httpClient->request(Request::METHOD_PUT, $uri, $options);
+        return $this->request(Request::METHOD_PUT, $uri, $options);
     }
 
     public function delete(string $uri, array $options = []): ResponseInterface
     {
-        return $this->httpClient->request(Request::METHOD_DELETE, $uri, $options);
+        return $this->request(Request::METHOD_DELETE, $uri, $options);
+    }
+
+    public function request(string $method, string $uri, array $options = []): ResponseInterface
+    {
+        return $this->httpClient->request($method, $uri, $options);
     }
 
     public function isAdmin(): bool
