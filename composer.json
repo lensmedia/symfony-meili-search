@@ -8,8 +8,15 @@
     },
     "require": {
         "php": ">=8.2",
-        "symfony/framework-bundle": "^7.0",
-        "symfony/http-client": "^7.0",
-        "doctrine/orm": "^2|^3"
+        "symfony/framework-bundle": "*",
+        "symfony/http-client": "*",
+        "doctrine/orm": "^2|^3",
+        "meilisearch/meilisearch-php": "^1.12",
+        "nyholm/psr7": "^1.8"
+    },
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": false
+        }
     }
 }
