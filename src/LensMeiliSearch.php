@@ -1,0 +1,392 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Lens\Bundle\MeiliSearchBundle;
+
+use InvalidArgumentException;
+use Lens\Bundle\MeiliSearchBundle\Attribute\Index;
+use LogicException;
+use Meilisearch\Client;
+use Meilisearch\Contracts\IndexesQuery;
+use Meilisearch\Contracts\IndexesResults;
+use Meilisearch\Endpoints\Indexes;
+use Meilisearch\Exceptions\ApiException;
+use Meilisearch\Search\SearchResult;
+use Psr\Http\Client\ClientInterface;
+use RuntimeException;
+
+class LensMeiliSearch
+{
+    private const TASK_TIMEOUT = 10000; // Longer than 10 seconds
+    private const TASK_INTERVAL = 500; // Every 500ms
+
+    public const DEFAULT_CLIENT = 'default';
+
+    /** @var Client[] */
+    private array $clients = [];
+
+    /** @var LoadedIndex[] */
+    private array $indexes = [];
+
+    /** @var LensMeiliSearchDocumentLoaderInterface[] */
+    private array $documentLoaders = [];
+
+    public function __construct(
+        ClientInterface $httpClient,
+        array $clients,
+        private array $groups,
+    ) {
+        foreach ($clients as $name => $client) {
+            $this->clients[$name] = new Client($client['url'], $client['key'], $httpClient);
+        }
+    }
+
+    public function initializeIndexLoaders(iterable $indexLoaders): void
+    {
+        foreach ($indexLoaders as $indexLoader) {
+            if (!($indexLoader instanceof LensMeiliSearchIndexLoaderInterface)) {
+                throw new InvalidArgumentException(sprintf(
+                    'Index loader "%s" must implement %s.',
+                    get_debug_type($indexLoader),
+                    LensMeiliSearchIndexLoaderInterface::class,
+                ));
+            }
+
+            foreach ($indexLoader->getIndexes() as $index) {
+                if (isset($this->indexes[$index->uid])) {
+                    throw new LogicException(sprintf('Duplicate index "%s" detected', $index->uid));
+                }
+
+                $this->indexes[$index->uid] = new LoadedIndex(
+                    $index,
+                    $this->client($index->client),
+                );
+            }
+        }
+    }
+
+    /**
+     * @return Index[]
+     */
+    public function configuredIndexes(string $filter = '*', int $filterFlags = 0): array
+    {
+        $results = [];
+
+        foreach ($this->indexes as $index) {
+            if ('*' !== $filter && !fnmatch($filter, $index->config->uid, $filterFlags)) {
+                continue;
+            }
+
+            if (!($index instanceof LoadedIndex)) {
+                throw new InvalidArgumentException(sprintf(
+                    'Index loader "%s" must return an array of %s instances.',
+                    get_debug_type($index),
+                    Index::class,
+                ));
+            }
+
+            $results[$index->config->uid] = $index->config;
+        }
+
+        return array_merge($results);
+    }
+
+    public function registerDocumentLoaders(iterable $documentLoaders): void
+    {
+        foreach ($documentLoaders as $documentLoader) {
+            if (!($documentLoader instanceof LensMeiliSearchDocumentLoaderInterface)) {
+                throw new InvalidArgumentException(sprintf(
+                    'Document loader "%s" must implement %s.',
+                    get_debug_type($documentLoader),
+                    LensMeiliSearchDocumentLoaderInterface::class,
+                ));
+            }
+
+            foreach ($documentLoader->supports() as $class) {
+                if (!class_exists($class)) {
+                    throw new InvalidArgumentException(sprintf(
+                        '%s::supports returns classname "%s" which is not a valid class.',
+                        $documentLoader::class,
+                        $class,
+                    ));
+                }
+
+                if (isset($this->documentLoaders[$class])) {
+                    throw new InvalidArgumentException(sprintf(
+                        'Document loader for class "%s" is already defined.',
+                        $class,
+                    ));
+                }
+
+                $this->documentLoaders[$class] = $documentLoader;
+            }
+        }
+    }
+
+    public function client(Client|string $name): Client
+    {
+        if (is_string($name)) {
+            if (!$this->hasClient($name)) {
+                throw new InvalidArgumentException(sprintf('Client "%s" is not configured.', $name));
+            }
+
+            return $this->clients[$name];
+        }
+
+        return $name;
+    }
+
+    public function clientForIndex(string $index): Client
+    {
+        $this->checkIndex($index);
+
+        return $this->indexes[$index]->client;
+    }
+
+    /**
+     * Simulates a remote index without having to fetch it first, useful for updates so you do not do multiple queries.
+     *
+     * Unlike getIndex, this will not create the remote index if it does not exist and should only be used when you know
+     * the remote index exits.
+     */
+    public function index(string $index): Indexes
+    {
+        $this->checkIndex($index);
+
+        $index = $this->indexes[$index];
+
+        return $index->remote ?? $this->client($index->config->client)->index($index->config->uid);
+    }
+
+    /**
+     * Get existing index by name or create a new one if it does not exist and client is provided.
+     */
+    public function getIndex(string $name): Indexes
+    {
+        $this->checkIndex($name);
+
+        $index = $this->indexes[$name];
+        $index->remote ??= $this->obtainRemoteIndex($index->config);
+
+        return $index->remote;
+    }
+
+    /**
+     * Returns the remote index. If an index does not exist on remote, it is created with the configured settings.
+     *
+     * @param bool $updateExistingIndexSettings Update settings for existing indexes (use for synchronization).
+     *
+     * @throws \Meilisearch\Exceptions\ApiException When the index does not exist and cannot be created.
+     */
+    public function obtainRemoteIndex(Index $index, bool $updateExistingIndexSettings = false): Indexes
+    {
+        $client = $this->client($index->client);
+
+        $uid = $index->uid;
+
+        try {
+            $remoteIndex = $client->getIndex($uid);
+            if ($updateExistingIndexSettings) {
+                $remoteIndex->updateSettings($this->settings($index->uid));
+            }
+
+            return $remoteIndex;
+        } catch (ApiException $exception) {
+            if (404 !== $exception->getCode()) {
+                throw $exception;
+            }
+        }
+
+        $createIndex = $client->createIndex($uid, [
+            'primaryKey' => $index->primaryKey,
+        ]);
+
+        if (isset($createIndex['taskId'])) {
+            $task = $this->waitForTask($client, $createIndex['taskId']);
+
+            if ('succeeded' !== $task['status']) {
+                throw new RuntimeException('Task failed to complete.');
+            }
+        }
+
+        $remoteIndex = $client->getIndex($uid);
+        $remoteIndex->updateSettings($this->settings($index->uid));
+
+        return $remoteIndex;
+    }
+
+    public function config(string $index): Index
+    {
+        $this->checkIndex($index);
+
+        return $this->indexes[$index]->config;
+    }
+
+    /**
+     * Returns the configured settings for an index.
+     *
+     * @see https://www.meilisearch.com/docs/reference/api/settings#settings-interface
+     */
+    public function settings(string $index): object
+    {
+        $this->checkIndex($index);
+
+        // Make sure there is always one setting, otherwise JSON encode in meilisearch/meilisearch-php makes
+        // an array instead of object when the array is empty ("use defaults for all").
+        return (object)$this->config($index)->settings;
+    }
+
+    public function addDocuments(iterable $documents, array $context = []): void
+    {
+        $listByIndex = [];
+        foreach ($documents as $document) {
+            if (!($document instanceof Document)) {
+                $document = $this->toDocument($document, $context);
+            }
+
+            $index = $document->index;
+            $config = $this->config($index);
+
+            $data = $document->data;
+            $primaryKey = $config->primaryKey ?? 'id';
+            if (!isset($data[$primaryKey])) {
+                throw new LogicException(sprintf(
+                    'Document data for index "%s" does not have the configured primary key property (%s), make sure to return it in the document data.',
+                    $index,
+                    $primaryKey,
+                ));
+            }
+
+            if (!isset($listByIndex[$index])) {
+                $listByIndex[$index] = [];
+            }
+
+            $listByIndex[$index][] = $data;
+        }
+
+        foreach ($listByIndex as $index => $documentsByIndex) {
+            $index = $this->index($index);
+
+            $index->addDocuments($documentsByIndex);
+        }
+    }
+
+    public function addDocument(object $document, array $context = []): void
+    {
+        $this->addDocuments([$document], $context);
+    }
+
+    public function toDocument(object $data, array $context = []): Document
+    {
+        if (!isset($this->documentLoaders[$data::class])) {
+            throw new InvalidArgumentException(sprintf(
+                'Class "%s" does not seem to have a configured loader.',
+                $data::class,
+            ));
+        }
+
+        return $this->documentLoaders[$data::class]->toDocument($data, $context);
+    }
+
+    private function checkIndex(string $index): void
+    {
+        if (!isset($this->indexes[$index])) {
+            throw new InvalidArgumentException(sprintf(
+                'Index "%s" is not configured, check your loaders.',
+                $index,
+            ));
+        }
+    }
+
+    private function waitForTask(Client $client, string|int $taskUid): array
+    {
+        $i = 0;
+        while (true) {
+            $task = $client->getTask($taskUid);
+            if ('processing' !== $task['status']) {
+                break;
+            }
+
+            $i += self::TASK_INTERVAL;
+            if ($i > self::TASK_TIMEOUT) {
+                throw new RuntimeException('Task took too long to complete.');
+            }
+
+            usleep(self::TASK_INTERVAL);
+        }
+
+        return $task;
+    }
+
+    public function getRemoteIndexes(Client|string $client, ?IndexesQuery $options = null): IndexesResults
+    {
+        $options ??= new IndexesQuery();
+        $options->setLimit(99999);
+
+        return $this->client($client)->getIndexes($options);
+    }
+
+    public function getAllRemoteIndexes(?IndexesQuery $options = null): array
+    {
+        return array_map(
+            fn ($client) => $this->getRemoteIndexes($client, $options),
+            $this->clients,
+        );
+    }
+
+    public function deleteIndex(string $name): void
+    {
+        $this->getIndex($name)->delete();
+
+        unset($this->indexes[$name]);
+    }
+
+    public function deleteRemoteIndex(Client|string $client, string $name): void
+    {
+        $this->client($client)->deleteIndex($name);
+    }
+
+    public function search(string $index, ?string $query, array $searchParams = [], array $options = []): SearchResult
+    {
+        return $this->getIndex($index)->search($query, $searchParams, ['raw' => false] + $options);
+    }
+
+    /**
+     * @param string|array $groups Group name or array of index names to search.
+     *
+     * @return SearchResult[]
+     */
+    public function groupSearch(string|array $groups, ?string $query, array $searchParams = [], array $options = []): array
+    {
+        if (is_string($groups)) {
+            $groups = $this->groupIndexes($groups);
+        }
+
+        dd($groups);
+    }
+
+    private function hasClient(string $name): bool
+    {
+        return isset($this->clients[$name]);
+    }
+
+    private function hasIndex(string $name): bool
+    {
+        return isset($this->indexes[$name]);
+    }
+
+    private function groupIndexes(string $group): array
+    {
+        if (!$this->hasGroup($group)) {
+            throw new InvalidArgumentException(sprintf('Group "%s" is not configured.', $group));
+        }
+
+        return $this->groups[$group];
+    }
+
+    private function hasGroup(string $name): bool
+    {
+        return isset($this->groups[$name]);
+    }
+}
