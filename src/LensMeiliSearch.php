@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Lens\Bundle\MeiliSearchBundle;
 
 use InvalidArgumentException;
+use Lens\Bundle\MeiliSearchBundle\Attribute\Index;
 use LogicException;
 use Meilisearch\Client;
 use Meilisearch\Contracts\IndexesQuery;
@@ -28,10 +29,7 @@ class LensMeiliSearch
     /** @var LoadedIndex[] */
     private array $indexes = [];
 
-    /** @var LensMeiliSearchIndexInterface[] */
-    private array $indexLoaders = [];
-
-    /** @var LensMeiliSearchDocumentInterface[] */
+    /** @var LensMeiliSearchDocumentLoaderInterface[] */
     private array $documentLoaders = [];
 
     public function __construct(
@@ -44,14 +42,14 @@ class LensMeiliSearch
         }
     }
 
-    public function registerIndexLoaders(iterable $indexLoaders): void
+    public function initializeIndexLoaders(iterable $indexLoaders): void
     {
         foreach ($indexLoaders as $indexLoader) {
-            if (!($indexLoader instanceof LensMeiliSearchIndexInterface)) {
+            if (!($indexLoader instanceof LensMeiliSearchIndexLoaderInterface)) {
                 throw new InvalidArgumentException(sprintf(
                     'Index loader "%s" must implement %s.',
                     get_debug_type($indexLoader),
-                    LensMeiliSearchIndexInterface::class,
+                    LensMeiliSearchIndexLoaderInterface::class,
                 ));
             }
 
@@ -97,11 +95,11 @@ class LensMeiliSearch
     public function registerDocumentLoaders(iterable $documentLoaders): void
     {
         foreach ($documentLoaders as $documentLoader) {
-            if (!($documentLoader instanceof LensMeiliSearchDocumentInterface)) {
+            if (!($documentLoader instanceof LensMeiliSearchDocumentLoaderInterface)) {
                 throw new InvalidArgumentException(sprintf(
                     'Document loader "%s" must implement %s.',
                     get_debug_type($documentLoader),
-                    LensMeiliSearchDocumentInterface::class,
+                    LensMeiliSearchDocumentLoaderInterface::class,
                 ));
             }
 
@@ -190,7 +188,7 @@ class LensMeiliSearch
         try {
             $remoteIndex = $client->getIndex($uid);
             if ($updateExistingIndexSettings) {
-                $remoteIndex->updateSettings($index->settings);
+                $remoteIndex->updateSettings($this->settings($index->uid));
             }
 
             return $remoteIndex;
@@ -213,7 +211,7 @@ class LensMeiliSearch
         }
 
         $remoteIndex = $client->getIndex($uid);
-        $remoteIndex->updateSettings($index->settings);
+        $remoteIndex->updateSettings($this->settings($index->uid));
 
         return $remoteIndex;
     }
@@ -225,11 +223,25 @@ class LensMeiliSearch
         return $this->indexes[$index]->config;
     }
 
+    /**
+     * Returns the configured settings for an index.
+     *
+     * @see https://www.meilisearch.com/docs/reference/api/settings#settings-interface
+     */
+    public function settings(string $index): object
+    {
+        $this->checkIndex($index);
+
+        // Make sure there is always one setting, otherwise JSON encode in meilisearch/meilisearch-php makes
+        // an array instead of object when the array is empty ("use defaults for all").
+        return (object)$this->config($index)->settings;
+    }
+
     public function addDocuments(iterable $documents, array $context = []): void
     {
         $listByIndex = [];
         foreach ($documents as $document) {
-            if (!($document instanceof LensMeiliSearchDocument)) {
+            if (!($document instanceof Document)) {
                 $document = $this->toDocument($document, $context);
             }
 
@@ -265,7 +277,7 @@ class LensMeiliSearch
         $this->addDocuments([$document], $context);
     }
 
-    public function toDocument(object $data, array $context = []): LensMeiliSearchDocument
+    public function toDocument(object $data, array $context = []): Document
     {
         if (!isset($this->documentLoaders[$data::class])) {
             throw new InvalidArgumentException(sprintf(

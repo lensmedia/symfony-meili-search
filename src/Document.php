@@ -6,7 +6,7 @@ namespace Lens\Bundle\MeiliSearchBundle;
 
 use InvalidArgumentException;
 
-readonly class LensMeiliSearchDocument
+readonly class Document
 {
     public function __construct(public string $index, public array $data = [])
     {

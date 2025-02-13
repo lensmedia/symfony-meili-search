@@ -6,8 +6,8 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Lens\Bundle\MeiliSearchBundle\Command\UpdateIndexes;
 use Lens\Bundle\MeiliSearchBundle\LensMeiliSearch;
-use Lens\Bundle\MeiliSearchBundle\LensMeiliSearchDocumentInterface;
-use Lens\Bundle\MeiliSearchBundle\LensMeiliSearchIndexInterface;
+use Lens\Bundle\MeiliSearchBundle\LensMeiliSearchDocumentLoaderInterface;
+use Lens\Bundle\MeiliSearchBundle\LensMeiliSearchIndexLoaderInterface;
 use Psr\Http\Client\ClientInterface;
 
 return static function (ContainerConfigurator $container) {
@@ -18,11 +18,14 @@ return static function (ContainerConfigurator $container) {
             abstract_arg('clients'),
             // abstract_arg('groups'),
         ])
-        ->call('registerIndexLoaders', [
-            tagged_iterator(LensMeiliSearchIndexInterface::class),
+
+        // Using calls so we can inject service classes that have a dependency on the MeiliSearch service
+        // without causing a circular reference.
+        ->call('initializeIndexLoaders', [
+            tagged_iterator(LensMeiliSearchIndexLoaderInterface::class),
         ])
         ->call('registerDocumentLoaders', [
-            tagged_iterator(LensMeiliSearchDocumentInterface::class),
+            tagged_iterator(LensMeiliSearchDocumentLoaderInterface::class),
         ])
 
         ->set(UpdateIndexes::class)

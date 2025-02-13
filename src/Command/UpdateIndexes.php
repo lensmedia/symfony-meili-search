@@ -5,13 +5,10 @@ declare(strict_types=1);
 namespace Lens\Bundle\MeiliSearchBundle\Command;
 
 use Lens\Bundle\MeiliSearchBundle\LensMeiliSearch;
-use Lens\Bundle\MeiliSearchBundle\Index;
-use Meilisearch\Endpoints\Indexes;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -29,12 +26,12 @@ class UpdateIndexes extends Command
 
     protected function configure(): void
     {
-        $this->addOption('matching', null, InputOption::VALUE_REQUIRED, 'Filter indexes to update by matching string (uses php.net/fnmatch).', '*');
+        $this->addArgument('matching', InputArgument::OPTIONAL, 'Filter indexes to update by matching string (uses php.net/fnmatch). Eg. "company" or "blog_*".', '*');
     }
 
     public function execute(InputInterface $input, OutputInterface $output): int
     {
-        $matchingOption = $input->getOption('matching');
+        $matchingOption = $input->getArgument('matching');
         $isMatching = '*' !== $matchingOption && '' !== $matchingOption;
 
         $indexConfigurations = $this->lensMeiliSearch->configuredIndexes($matchingOption);
@@ -51,10 +48,6 @@ class UpdateIndexes extends Command
 
         $io->progressStart(count($indexConfigurations));
 
-        /**
-         * @var string $name
-         * @var Index $index
-         */
         foreach ($indexConfigurations as $indexConfiguration) {
             $this->lensMeiliSearch->obtainRemoteIndex($indexConfiguration, updateExistingIndexSettings: true);
 

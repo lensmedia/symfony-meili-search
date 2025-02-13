@@ -24,10 +24,13 @@ class LensMeiliSearchBundle extends AbstractBundle
             ->setArgument('$clients', $config['clients'])
             ->setArgument('$groups', $config['groups']);
 
-        $builder->registerForAutoconfiguration(LensMeiliSearchDocumentInterface::class)
-            ->addTag(LensMeiliSearchDocumentInterface::class);
+        $builder->registerForAutoconfiguration(LensMeiliSearchDocumentLoaderInterface::class)
+            ->addTag(LensMeiliSearchDocumentLoaderInterface::class);
 
         $builder->registerForAutoconfiguration(LensMeiliSearchIndexInterface::class)
             ->addTag(LensMeiliSearchIndexInterface::class);
+
+        $builder->registerForAutoconfiguration(LensMeiliSearchIndexLoaderInterface::class)
+            ->addTag(LensMeiliSearchIndexLoaderInterface::class);
     }
 }
