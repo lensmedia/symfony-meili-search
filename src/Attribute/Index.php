@@ -20,6 +20,7 @@ class Index
         public ?string $primaryKey = null,
         public array $settings = [],
         public string $client = LensMeiliSearch::DEFAULT_CLIENT,
+        public array $context = [],
     ) {
     }
 }

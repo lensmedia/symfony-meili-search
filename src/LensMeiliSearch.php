@@ -61,6 +61,7 @@ class LensMeiliSearch
                 $this->indexes[$index->uid] = new LoadedIndex(
                     $index,
                     $this->client($index->client),
+                    context: $index->context,
                 );
             }
         }

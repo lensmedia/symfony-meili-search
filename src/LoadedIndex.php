@@ -19,6 +19,7 @@ class LoadedIndex
         public Index $config,
         public Client $client,
         public ?Indexes $remote = null,
+        public array $context = [],
     ) {
     }
 }
