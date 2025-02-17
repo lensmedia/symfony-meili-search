@@ -242,12 +242,12 @@ class LensMeiliSearch
     {
         $listByIndex = [];
         foreach ($documents as $document) {
-            if (!($document instanceof Document)) {
-                $document = $this->toDocument($document, $context);
-            }
-
             $index = $document->index;
             $config = $this->config($index);
+
+            if (!($document instanceof Document)) {
+                $document = $this->toDocument($document, array_replace_recursive($config->context, $context));
+            }
 
             $data = $document->data;
             $primaryKey = $config->primaryKey ?? 'id';
