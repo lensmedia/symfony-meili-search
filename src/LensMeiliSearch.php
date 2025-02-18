@@ -33,12 +33,12 @@ class LensMeiliSearch
     private array $documentLoaders = [];
 
     public function __construct(
-        ClientInterface $httpClient,
+        private readonly ClientInterface $httpClient,
         array $clients,
         private array $groups,
     ) {
         foreach ($clients as $name => $client) {
-            $this->clients[$name] = new Client($client['url'], $client['key'], $httpClient);
+            $this->addClient($name, $client['url'], $client['key']);
         }
     }
 
@@ -125,6 +125,23 @@ class LensMeiliSearch
         }
     }
 
+    public function addClient(string $name, string $url, string $key): void
+    {
+        if ('' === $name) {
+            throw new InvalidArgumentException('Client name cannot be empty.');
+        }
+
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new InvalidArgumentException(sprintf('Client "%s" has an invalid URL.', $name));
+        }
+
+        if ('' === $key) {
+            throw new InvalidArgumentException(sprintf('Client "%s" has an empty key.', $name));
+        }
+
+        $this->clients[$name] = new Client($url, $key, $this->httpClient);
+    }
+
     public function client(Client|string $name): Client
     {
         if (is_string($name)) {
@@ -138,11 +155,11 @@ class LensMeiliSearch
         return $name;
     }
 
-    public function clientForIndex(string $index): Client
+    public function clientForIndex(string $uid): Client
     {
-        $this->checkIndex($index);
+        $this->checkIndex($uid);
 
-        return $this->indexes[$index]->client;
+        return $this->indexes[$uid]->client;
     }
 
     /**
@@ -151,11 +168,11 @@ class LensMeiliSearch
      * Unlike getIndex, this will not create the remote index if it does not exist and should only be used when you know
      * the remote index exits.
      */
-    public function index(string $index): Indexes
+    public function index(string $uid): Indexes
     {
-        $this->checkIndex($index);
+        $this->checkIndex($uid);
 
-        $index = $this->indexes[$index];
+        $index = $this->indexes[$uid];
 
         return $index->remote ?? $this->client($index->config->client)->index($index->config->uid);
     }
@@ -163,11 +180,11 @@ class LensMeiliSearch
     /**
      * Get existing index by name or create a new one if it does not exist and client is provided.
      */
-    public function getIndex(string $name): Indexes
+    public function getIndex(string $uid): Indexes
     {
-        $this->checkIndex($name);
+        $this->checkIndex($uid);
 
-        $index = $this->indexes[$name];
+        $index = $this->indexes[$uid];
         $index->remote ??= $this->obtainRemoteIndex($index->config);
 
         return $index->remote;
@@ -211,17 +228,16 @@ class LensMeiliSearch
             }
         }
 
-        $remoteIndex = $client->getIndex($uid);
-        $remoteIndex->updateSettings($this->settings($index->uid));
+        $this->updateSettings($uid);
 
-        return $remoteIndex;
+        return $client->getIndex($uid);
     }
 
-    public function config(string $index): Index
+    public function config(string $uid): Index
     {
-        $this->checkIndex($index);
+        $this->checkIndex($uid);
 
-        return $this->indexes[$index]->config;
+        return $this->indexes[$uid]->config;
     }
 
     /**
@@ -229,53 +245,54 @@ class LensMeiliSearch
      *
      * @see https://www.meilisearch.com/docs/reference/api/settings#settings-interface
      */
-    public function settings(string $index): object
+    public function settings(string $uid): object
     {
-        $this->checkIndex($index);
+        $this->checkIndex($uid);
 
         // Make sure there is always one setting, otherwise JSON encode in meilisearch/meilisearch-php makes
         // an array instead of object when the array is empty ("use defaults for all").
-        return (object)$this->config($index)->settings;
+        return (object)$this->config($uid)->settings;
     }
 
-    public function addDocuments(iterable $documents, array $context = []): void
+    /**
+     * Update settings to the configured settings from the index
+     */
+    public function updateSettings(string $uid): void
     {
-        $listByIndex = [];
-        foreach ($documents as $document) {
-            $index = $document->index;
-            $config = $this->config($index);
+        $this->index($uid)->updateSettings($this->settings($uid));
+    }
 
+    public function addDocuments(string $uid, iterable $documents, array $context = []): void
+    {
+        $entries = [];
+
+        $context = array_replace_recursive(
+            $this->config($uid)->context, // Configured context (Index annotation)
+            ['index' => $uid], // Forcing index in context
+            $context, // Provided context
+        );
+
+        foreach ($documents as $document) {
             if (!($document instanceof Document)) {
-                $document = $this->toDocument($document, array_replace_recursive($config->context, $context));
+                $document = $this->toDocument($document, $context);
             }
+
+            $config = $this->config($uid);
 
             $data = $document->data;
             $primaryKey = $config->primaryKey ?? 'id';
             if (!isset($data[$primaryKey])) {
                 throw new LogicException(sprintf(
                     'Document data for index "%s" does not have the configured primary key property (%s), make sure to return it in the document data.',
-                    $index,
+                    $uid,
                     $primaryKey,
                 ));
             }
 
-            if (!isset($listByIndex[$index])) {
-                $listByIndex[$index] = [];
-            }
-
-            $listByIndex[$index][] = $data;
+            $entries[] = $data;
         }
 
-        foreach ($listByIndex as $index => $documentsByIndex) {
-            $index = $this->index($index);
-
-            $index->addDocuments($documentsByIndex);
-        }
-    }
-
-    public function addDocument(object $document, array $context = []): void
-    {
-        $this->addDocuments([$document], $context);
+        $this->index($uid)->addDocuments($entries);
     }
 
     public function toDocument(object $data, array $context = []): Document
@@ -336,21 +353,21 @@ class LensMeiliSearch
         );
     }
 
-    public function deleteIndex(string $name): void
+    public function deleteIndex(string $uid): void
     {
-        $this->getIndex($name)->delete();
+        $this->getIndex($uid)->delete();
 
-        unset($this->indexes[$name]);
+        unset($this->indexes[$uid]);
     }
 
-    public function deleteRemoteIndex(Client|string $client, string $name): void
+    public function deleteRemoteIndex(Client|string $client, string $uid): void
     {
-        $this->client($client)->deleteIndex($name);
+        $this->client($client)->deleteIndex($uid);
     }
 
-    public function search(string $index, ?string $query, array $searchParams = [], array $options = []): SearchResult
+    public function search(string $uid, ?string $query, array $searchParams = [], array $options = []): SearchResult
     {
-        return $this->getIndex($index)->search($query, $searchParams, ['raw' => false] + $options);
+        return $this->getIndex($uid)->search($query, $searchParams, ['raw' => false] + $options);
     }
 
     /**
@@ -372,9 +389,9 @@ class LensMeiliSearch
         return isset($this->clients[$name]);
     }
 
-    private function hasIndex(string $name): bool
+    private function hasIndex(string $uid): bool
     {
-        return isset($this->indexes[$name]);
+        return isset($this->indexes[$uid]);
     }
 
     private function groupIndexes(string $group): array

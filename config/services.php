@@ -16,7 +16,6 @@ return static function (ContainerConfigurator $container) {
         ->args([
             service(ClientInterface::class),
             abstract_arg('clients'),
-            // abstract_arg('groups'),
         ])
 
         // Using calls so we can inject service classes that have a dependency on the MeiliSearch service

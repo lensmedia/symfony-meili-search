@@ -8,7 +8,7 @@ use InvalidArgumentException;
 
 readonly class Document
 {
-    public function __construct(public string $index, public array $data = [])
+    public function __construct(public array $data = [])
     {
         if (empty($this->data)) {
             throw new InvalidArgumentException('The data array cannot be empty as they serve no purpose.');
