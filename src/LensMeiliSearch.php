@@ -139,6 +139,10 @@ class LensMeiliSearch
             throw new InvalidArgumentException(sprintf('Client "%s" has an empty key.', $name));
         }
 
+        if ($this->hasClient($name)) {
+            throw new InvalidArgumentException(sprintf('Client "%s" is already configured.', $name));
+        }
+
         $this->clients[$name] = new Client($url, $key, $this->httpClient);
     }
 
