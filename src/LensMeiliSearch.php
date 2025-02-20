@@ -12,15 +12,13 @@ use Meilisearch\Contracts\IndexesQuery;
 use Meilisearch\Contracts\IndexesResults;
 use Meilisearch\Endpoints\Indexes;
 use Meilisearch\Exceptions\ApiException;
+use Meilisearch\Exceptions\TimeOutException;
 use Meilisearch\Search\SearchResult;
 use Psr\Http\Client\ClientInterface;
 use RuntimeException;
 
 class LensMeiliSearch
 {
-    private const TASK_TIMEOUT = 10000; // Longer than 10 seconds
-    private const TASK_INTERVAL = 500; // Every 500ms
-
     public const DEFAULT_CLIENT = 'default';
 
     /** @var Client[] */
@@ -201,7 +199,7 @@ class LensMeiliSearch
      *
      * @throws \Meilisearch\Exceptions\ApiException When the index does not exist and cannot be created.
      */
-    public function obtainRemoteIndex(Index $index, bool $updateExistingIndexSettings = false): Indexes
+    public function obtainRemoteIndex(Index $index, bool $updateExistingIndexSettings = false, int $timeoutInMs = 5000, int $intervalInMs = 50): Indexes
     {
         $client = $this->client($index->client);
 
@@ -224,11 +222,11 @@ class LensMeiliSearch
             'primaryKey' => $index->primaryKey,
         ]);
 
-        if (isset($createIndex['taskId'])) {
-            $task = $this->waitForTask($client, $createIndex['taskId']);
+        if (isset($createIndex['taskUid'])) {
+            $task = $client->waitForTask($createIndex['taskUid'], $timeoutInMs, $intervalInMs);
 
-            if ('succeeded' !== $task['status']) {
-                throw new RuntimeException('Task failed to complete.');
+            if (isset($task['error'])) {
+                throw new RuntimeException($task['error']['message'] ?? 'Task failed to complete.');
             }
         }
 
@@ -261,12 +259,15 @@ class LensMeiliSearch
     /**
      * Update settings to the configured settings from the index
      */
-    public function updateSettings(string $uid): void
+    public function updateSettings(string $uid): array
     {
-        $this->index($uid)->updateSettings($this->settings($uid));
+        return $this->index($uid)->updateSettings($this->settings($uid));
     }
 
-    public function addDocuments(string $uid, iterable $documents, array $context = []): void
+    /**
+     * @throws \Meilisearch\Exceptions\TimeOutException if task tames too long
+     */
+    public function addDocuments(string $uid, iterable $documents, array $context = [], int $taskTimeoutInMs = 5000, int $taskIntervalInMs = 50): array
     {
         $entries = [];
 
@@ -296,7 +297,16 @@ class LensMeiliSearch
             $entries[] = $data;
         }
 
-        $this->index($uid)->addDocuments($entries);
+        $task = $this->index($uid)->addDocuments($entries);
+        if (isset($task['taskUid'])) {
+            try {
+                return $this->index($uid)->waitForTask($task['taskUid'], $taskTimeoutInMs, $taskIntervalInMs);
+            } catch (TimeOutException) {
+                return $task;
+            }
+        }
+
+        return $task;
     }
 
     public function toDocument(object $data, array $context = []): Document
@@ -309,36 +319,6 @@ class LensMeiliSearch
         }
 
         return $this->documentLoaders[$data::class]->toDocument($data, $context);
-    }
-
-    private function checkIndex(string $index): void
-    {
-        if (!isset($this->indexes[$index])) {
-            throw new InvalidArgumentException(sprintf(
-                'Index "%s" is not configured, check your loaders.',
-                $index,
-            ));
-        }
-    }
-
-    private function waitForTask(Client $client, string|int $taskUid): array
-    {
-        $i = 0;
-        while (true) {
-            $task = $client->getTask($taskUid);
-            if ('processing' !== $task['status']) {
-                break;
-            }
-
-            $i += self::TASK_INTERVAL;
-            if ($i > self::TASK_TIMEOUT) {
-                throw new RuntimeException('Task took too long to complete.');
-            }
-
-            usleep(self::TASK_INTERVAL);
-        }
-
-        return $task;
     }
 
     public function getRemoteIndexes(Client|string $client, ?IndexesQuery $options = null): IndexesResults
@@ -357,16 +337,18 @@ class LensMeiliSearch
         );
     }
 
-    public function deleteIndex(string $uid): void
+    public function deleteIndex(string $uid): array
     {
-        $this->getIndex($uid)->delete();
+        $response = $this->getIndex($uid)->delete();
 
         unset($this->indexes[$uid]);
+
+        return $response;
     }
 
-    public function deleteRemoteIndex(Client|string $client, string $uid): void
+    public function deleteRemoteIndex(Client|string $client, string $uid): array
     {
-        $this->client($client)->deleteIndex($uid);
+        return $this->client($client)->deleteIndex($uid);
     }
 
     public function search(string $uid, ?string $query, array $searchParams = [], array $options = []): SearchResult
@@ -396,6 +378,16 @@ class LensMeiliSearch
     private function hasIndex(string $uid): bool
     {
         return isset($this->indexes[$uid]);
+    }
+
+    private function checkIndex(string $uid): void
+    {
+        if (!$this->hasIndex($uid)) {
+            throw new InvalidArgumentException(sprintf(
+                'Index "%s" is not configured, check your loaders.',
+                $uid,
+            ));
+        }
     }
 
     private function groupIndexes(string $group): array
