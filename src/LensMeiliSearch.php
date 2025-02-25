@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Lens\Bundle\MeiliSearchBundle;
 
+use Doctrine\Persistence\Proxy;
 use InvalidArgumentException;
 use Lens\Bundle\MeiliSearchBundle\Attribute\Index;
 use LogicException;
@@ -311,14 +312,16 @@ class LensMeiliSearch
 
     public function toDocument(object $data, array $context = []): Document
     {
-        if (!isset($this->documentLoaders[$data::class])) {
+        $class = $this->class($data);
+
+        if (!isset($this->documentLoaders[$class])) {
             throw new InvalidArgumentException(sprintf(
                 'Class "%s" does not seem to have a configured loader.',
-                $data::class,
+                $class,
             ));
         }
 
-        return $this->documentLoaders[$data::class]->toDocument($data, $context);
+        return $this->documentLoaders[$class]->toDocument($data, $context);
     }
 
     public function getRemoteIndexes(Client|string $client, ?IndexesQuery $options = null): IndexesResults
@@ -402,5 +405,22 @@ class LensMeiliSearch
     private function hasGroup(string $name): bool
     {
         return isset($this->groups[$name]);
+    }
+
+    /**
+     * Get class name from object, even if it is a doctrine proxy.
+     */
+    private function class(object $class): string
+    {
+        if ($class instanceof Proxy) {
+            $className = get_class($class);
+            $pos = strrpos($className, '\\' . Proxy::MARKER . '\\');
+
+            if ($pos !== false) {
+                return substr($className, $pos + Proxy::MARKER_LENGTH + 2);
+            }
+        }
+
+        return get_class($class);
     }
 }
