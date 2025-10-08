@@ -312,7 +312,10 @@ class LensMeiliSearch
 
     public function toDocument(object $data, array $context = []): Document
     {
-        $class = $this->class($data);
+        $class = $data::class;
+        if (is_a($data, Proxy::class, true)) {
+            $class = get_parent_class($data);
+        }
 
         if (!isset($this->documentLoaders[$class])) {
             throw new InvalidArgumentException(sprintf(
@@ -424,3 +427,4 @@ class LensMeiliSearch
         return get_class($class);
     }
 }
+
